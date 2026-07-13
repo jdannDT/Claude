@@ -1,0 +1,261 @@
+{
+  "version": 17,
+  "variables": [
+    {
+      "key": "environment",
+      "type": "query",
+      "input": {
+        "query": "fetch logs | filter isNotNull(mule.environment) | fieldsAdd mule.environment | dedup mule.environment | fields value = mule.environment | sort value asc",
+        "defaultValues": []
+      },
+      "visible": true,
+      "multiple": true,
+      "name": "Environment"
+    },
+    {
+      "key": "app",
+      "type": "query",
+      "input": {
+        "query": "fetch logs | filter isNotNull(mule.app) | fieldsAdd mule.app | dedup mule.app | fields value = mule.app | sort value asc",
+        "defaultValues": []
+      },
+      "visible": true,
+      "multiple": true,
+      "name": "Application"
+    },
+    {
+      "key": "api",
+      "type": "query",
+      "input": {
+        "query": "fetch logs | filter isNotNull(mule.api.name) | dedup mule.api.name | fields value = mule.api.name | sort value asc",
+        "defaultValues": []
+      },
+      "visible": true,
+      "multiple": true,
+      "name": "API"
+    }
+  ],
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "## MuleSoft Anypoint Observability\nLogs from CloudHub app workers · Flex/Omni Gateway · Anypoint Audit  \n> Filter by **Environment**, **Application**, and **API** above"
+    },
+
+    "1": {
+      "type": "markdown",
+      "content": "### Application Logs"
+    },
+    "2": {
+      "type": "markdown",
+      "content": "### Flex Gateway — API Traffic"
+    },
+    "3": {
+      "type": "markdown",
+      "content": "### Anypoint Audit"
+    },
+
+    "4": {
+      "type": "data",
+      "title": "App Log Volume by Level",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.app.log\"\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.app, $app) OR arraySize(toArray($app)) == 0\n| makeTimeseries count(), by: {mule.level}, time: {default}, interval: auto",
+      "visualization": "areaChart",
+      "visualizationSettings": {
+        "chartSettings": {
+          "colorMode": "auto",
+          "categoricalColorTheme": "DEFAULT",
+          "resolveSeriesBy": "mule.level",
+          "seriesOverrides": {
+            "ERROR": {"color": "#e05252"},
+            "WARN":  {"color": "#f5a623"},
+            "INFO":  {"color": "#5cb85c"},
+            "DEBUG": {"color": "#aaaaaa"}
+          }
+        }
+      }
+    },
+
+    "5": {
+      "type": "data",
+      "title": "App Error Rate (% ERROR logs)",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.app.log\"\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.app, $app) OR arraySize(toArray($app)) == 0\n| makeTimeseries\n    total = count(),\n    errors = countIf(mule.is_error == true),\n    interval: auto\n| fieldsAdd error_rate = errors / total * 100",
+      "visualization": "lineChart",
+      "visualizationSettings": {
+        "thresholds": [
+          {"field": "error_rate", "rules": [{"value": 1, "color": "#f5a623"}, {"value": 5, "color": "#e05252"}]}
+        ]
+      }
+    },
+
+    "6": {
+      "type": "data",
+      "title": "Top Flows by Error Count",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.app.log\" AND mule.is_error == true\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.app, $app) OR arraySize(toArray($app)) == 0\n| summarize errors = count(), by: {mule.app, mule.flow}\n| sort errors desc\n| limit 20",
+      "visualization": "table",
+      "visualizationSettings": {
+        "table": {
+          "columns": [
+            {"field": "mule.app", "displayName": "Application"},
+            {"field": "mule.flow", "displayName": "Flow"},
+            {"field": "errors", "displayName": "Errors", "color": {"thresholds": [{"value": 1, "color": "#f5a623"}, {"value": 10, "color": "#e05252"}]}}
+          ]
+        }
+      }
+    },
+
+    "7": {
+      "type": "data",
+      "title": "Recent Error Logs",
+      "query": "fetch logs, from:now()-1h\n| filter event.type == \"mule.app.log\" AND mule.is_error == true\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.app, $app) OR arraySize(toArray($app)) == 0\n| fields timestamp, mule.app, mule.flow, mule.correlationId, mule.message\n| sort timestamp desc\n| limit 50",
+      "visualization": "table"
+    },
+
+    "8": {
+      "type": "data",
+      "title": "API Request Volume by Status Class",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.gateway.access\"\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.api.name, $api) OR arraySize(toArray($api)) == 0\n| fieldsAdd status_class = concat(toString(toLong(mule.api.statusCode / 100)), \"xx\")\n| makeTimeseries count(), by: {status_class}, interval: auto",
+      "visualization": "areaChart",
+      "visualizationSettings": {
+        "chartSettings": {
+          "seriesOverrides": {
+            "2xx": {"color": "#5cb85c"},
+            "3xx": {"color": "#5bc0de"},
+            "4xx": {"color": "#f5a623"},
+            "5xx": {"color": "#e05252"}
+          }
+        }
+      }
+    },
+
+    "9": {
+      "type": "data",
+      "title": "API p50 / p95 / p99 Latency (ms)",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.gateway.access\"\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.api.name, $api) OR arraySize(toArray($api)) == 0\n| makeTimeseries\n    p50 = percentile(mule.api.duration_ms, 50),\n    p95 = percentile(mule.api.duration_ms, 95),\n    p99 = percentile(mule.api.duration_ms, 99),\n    interval: auto",
+      "visualization": "lineChart"
+    },
+
+    "10": {
+      "type": "data",
+      "title": "API Error Rate by API Name",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.gateway.access\"\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.api.name, $api) OR arraySize(toArray($api)) == 0\n| summarize\n    total = count(),\n    errors_5xx = countIf(mule.is_error == true),\n    errors_4xx = countIf(mule.is_4xx == true),\n    by: {mule.api.name}\n| fieldsAdd\n    rate_5xx = round(errors_5xx / total * 100, decimals: 2),\n    rate_4xx = round(errors_4xx / total * 100, decimals: 2)\n| sort errors_5xx desc",
+      "visualization": "table",
+      "visualizationSettings": {
+        "table": {
+          "columns": [
+            {"field": "mule.api.name", "displayName": "API"},
+            {"field": "total", "displayName": "Total Requests"},
+            {"field": "errors_5xx", "displayName": "5xx Errors"},
+            {"field": "rate_5xx", "displayName": "5xx Rate %"},
+            {"field": "errors_4xx", "displayName": "4xx Errors"},
+            {"field": "rate_4xx", "displayName": "4xx Rate %"}
+          ]
+        }
+      }
+    },
+
+    "11": {
+      "type": "data",
+      "title": "Top Paths by Request Count",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.gateway.access\"\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| filter in(mule.api.name, $api) OR arraySize(toArray($api)) == 0\n| summarize\n    requests = count(),\n    avg_ms = avg(mule.api.duration_ms),\n    errors = countIf(mule.is_error == true),\n    by: {mule.api.name, mule.api.method, mule.api.path}\n| sort requests desc\n| limit 20",
+      "visualization": "table"
+    },
+
+    "12": {
+      "type": "data",
+      "title": "Policy Violations Over Time",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.gateway.access\" AND mule.api.policyViolations > 0\n| filter in(mule.environment, $environment) OR arraySize(toArray($environment)) == 0\n| makeTimeseries sum(mule.api.policyViolations), by: {mule.api.name}, interval: auto",
+      "visualization": "barChart"
+    },
+
+    "13": {
+      "type": "data",
+      "title": "Gateway Upstream vs End-to-End Latency",
+      "query": "fetch logs, from:now()-2h\n| filter event.type == \"mule.gateway.access\"\n| filter in(mule.api.name, $api) OR arraySize(toArray($api)) == 0\n| makeTimeseries\n    e2e_p95 = percentile(mule.api.duration_ms, 95),\n    upstream_p95 = percentile(mule.api.upstream.ms, 95),\n    interval: auto",
+      "visualization": "lineChart"
+    },
+
+    "14": {
+      "type": "data",
+      "title": "Audit Events by Action Type",
+      "query": "fetch logs, from:now()-24h\n| filter event.type == \"mule.audit\"\n| summarize count(), by: {mule.audit.action, mule.audit.objectType, mule.audit.success}\n| sort count() desc",
+      "visualization": "table",
+      "visualizationSettings": {
+        "table": {
+          "columns": [
+            {"field": "mule.audit.action", "displayName": "Action"},
+            {"field": "mule.audit.objectType", "displayName": "Object Type"},
+            {"field": "mule.audit.success", "displayName": "Success"},
+            {"field": "count()", "displayName": "Count"}
+          ]
+        }
+      }
+    },
+
+    "15": {
+      "type": "data",
+      "title": "Failed Audit Events",
+      "query": "fetch logs, from:now()-24h\n| filter event.type == \"mule.audit\" AND mule.audit.success == false\n| fields timestamp, mule.audit.userName, mule.audit.action, mule.audit.objectType, mule.audit.objectName, mule.org\n| sort timestamp desc\n| limit 50",
+      "visualization": "table"
+    },
+
+    "16": {
+      "type": "data",
+      "title": "Audit Activity by User (top 10)",
+      "query": "fetch logs, from:now()-24h\n| filter event.type == \"mule.audit\"\n| summarize\n    total = count(),\n    failures = countIf(mule.audit.success == false),\n    by: {mule.audit.userName}\n| sort total desc\n| limit 10",
+      "visualization": "barChart",
+      "visualizationSettings": {
+        "chartSettings": {"categoricalColorTheme": "DEFAULT"}
+      }
+    },
+
+    "17": {
+      "type": "data",
+      "title": "Deploy Events Timeline",
+      "query": "fetch logs, from:now()-24h\n| filter event.type == \"mule.audit\" AND mule.audit.action =~ \"Deploy|Undeploy|Restart\"\n| fields timestamp, mule.audit.userName, mule.audit.action, mule.audit.objectName, mule.audit.success, mule.environment\n| sort timestamp desc",
+      "visualization": "table"
+    },
+
+    "18": {
+      "type": "data",
+      "title": "Overall Log Health — KPI",
+      "query": "fetch logs, from:now()-1h\n| filter event.type =~ \"mule.*\"\n| summarize\n    total = count(),\n    app_errors = countIf(event.type == \"mule.app.log\" AND mule.is_error == true),\n    api_5xx = countIf(event.type == \"mule.gateway.access\" AND mule.is_error == true),\n    api_4xx = countIf(event.type == \"mule.gateway.access\" AND mule.is_4xx == true),\n    audit_failures = countIf(event.type == \"mule.audit\" AND mule.audit.success == false)\n| fieldsAdd\n    app_error_rate = round(app_errors / total * 100, decimals: 2),\n    api_5xx_rate   = round(api_5xx / total * 100, decimals: 2)",
+      "visualization": "singleValue",
+      "visualizationSettings": {
+        "singleValue": {
+          "showLabel": true,
+          "showTrend": true,
+          "fields": [
+            {"field": "app_errors", "label": "App Errors (1h)"},
+            {"field": "api_5xx", "label": "API 5xx (1h)"},
+            {"field": "api_4xx", "label": "API 4xx (1h)"},
+            {"field": "audit_failures", "label": "Audit Failures (24h)"}
+          ]
+        }
+      }
+    }
+  },
+
+  "layouts": {
+    "0":  {"x": 0,  "y": 0,  "w": 24, "h": 2},
+    "18": {"x": 0,  "y": 2,  "w": 24, "h": 3},
+
+    "1":  {"x": 0,  "y": 5,  "w": 24, "h": 1},
+    "4":  {"x": 0,  "y": 6,  "w": 8,  "h": 5},
+    "5":  {"x": 8,  "y": 6,  "w": 8,  "h": 5},
+    "6":  {"x": 16, "y": 6,  "w": 8,  "h": 5},
+    "7":  {"x": 0,  "y": 11, "w": 24, "h": 5},
+
+    "2":  {"x": 0,  "y": 16, "w": 24, "h": 1},
+    "8":  {"x": 0,  "y": 17, "w": 8,  "h": 5},
+    "9":  {"x": 8,  "y": 17, "w": 8,  "h": 5},
+    "13": {"x": 16, "y": 17, "w": 8,  "h": 5},
+    "10": {"x": 0,  "y": 22, "w": 12, "h": 5},
+    "11": {"x": 12, "y": 22, "w": 12, "h": 5},
+    "12": {"x": 0,  "y": 27, "w": 24, "h": 4},
+
+    "3":  {"x": 0,  "y": 31, "w": 24, "h": 1},
+    "14": {"x": 0,  "y": 32, "w": 8,  "h": 5},
+    "16": {"x": 8,  "y": 32, "w": 8,  "h": 5},
+    "17": {"x": 16, "y": 32, "w": 8,  "h": 5},
+    "15": {"x": 0,  "y": 37, "w": 24, "h": 5}
+  }
+}
